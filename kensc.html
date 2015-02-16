@@ -1,0 +1,172 @@
+<!doctype html>
+<html>
+    <head>
+        <meta charset="utf-8">
+        <title>KENSC</title>
+        <script type="text/javascript" src="kensc.js"></script>
+        <script type="text/javascript">
+            var operations = [
+                { func: _comper_encode },
+                { func: _comper_decode },
+                { func: _enigma_encode },
+                { func: _enigma_decode },
+                { func: _kosinski_encode },
+                { func: _kosinski_decode },
+                { func: _moduled_kosinski_encode },
+                { func: _moduled_kosinski_decode },
+                { func: _nemesis_encode },
+                { func: _nemesis_decode },
+                { func: do_saxman_encode, options: ["withSizeOption"] },
+                { func: do_saxman_decode, options: ["sizeOption"] },
+            ];
+
+            var option;
+            var withSize;
+            var automaticSize, manualSize, size;
+
+            function do_saxman_encode(input, inputSize, output, outputSize) {
+                return _saxman_encode(input, inputSize, output, outputSize, document.getElementById("withSize").checked);
+            }
+
+            function do_saxman_decode(input, inputSize, output, outputSize) {
+                if (automaticSize.checked) {
+                    return _saxman_decode(input, inputSize, output, outputSize, inputSize);
+                }
+
+                if (manualSize.checked) {
+                    return _saxman_decode(input, inputSize, output, outputSize, document.getElementById("size").value);
+                }
+
+                alert("Please either select automatic size or enter the size manually.");
+            }
+
+            function optionChange() {
+                var options;
+                var i;
+
+                // Hide all options
+                for (var p in operations) {
+                    if (operations.hasOwnProperty(p)) {
+                        options = operations[p].options;
+                        if (options) {
+                            for (i = 0; i < options.length; i++) {
+                                document.getElementById(options[i]).style.display = "none";
+                            }
+                        }
+                    }
+                }
+
+                options = operations[option.value].options;
+                if (options) {
+                    for (i = 0; i < options.length; i++) {
+                        document.getElementById(options[i]).style.display = "block";
+                    }
+                }
+            }
+
+            function pad2(s) {
+                if (s.length < 2) {
+                    return "0" + s;
+                }
+
+                return s;
+            }
+
+            function go() {
+                var files = document.getElementById("files").files;
+                if (!files.length) {
+                    alert('Please select a file!');
+                    return;
+                }
+
+                var fileReader = new FileReader();
+                fileReader.onloadend = function (e) {
+                    if (e.target.readyState == FileReader.DONE) {
+                        var input = new Int8Array(e.target.result);
+                        var sp = Runtime.stackSave();
+                        try {
+                            var inputPtr = _malloc(input.length);
+                            try {
+                                writeArrayToMemory(input, inputPtr);
+                                var outputPtrPtr = Runtime.stackAlloc(4);
+                                var outputSizePtr = Runtime.stackAlloc(4);
+                                if (operations[option.value].func(inputPtr, input.length, outputPtrPtr, outputSizePtr)) {
+                                    var outputPtr = HEAP32[outputPtrPtr >> 2];
+                                    try {
+                                        var outputSize = HEAP32[outputSizePtr >> 2];
+                                        var output = new Uint8Array(outputSize);
+                                        var outputBuffer = outputPtr;
+                                        for (var i = 0; i < outputSize; i++) {
+                                            output[i] = HEAP8[outputBuffer++];
+                                        }
+
+                                        var outputBlob = new Blob([output], { type: "application/octet-stream" });
+                                        URL.revokeObjectURL(document.getElementById("download").href);
+                                        document.getElementById("download").href = URL.createObjectURL(outputBlob);
+
+                                        var outputText = "";
+                                        for (i = 0; i < output.length; i++) {
+                                            if (i === 0) {
+                                                outputText += pad2(output[i].toString(16));
+                                            } else {
+                                                outputText += " " + pad2(output[i].toString(16));
+                                            }
+                                        }
+
+                                        document.getElementById("output").textContent = outputText;
+                                    } finally {
+                                        _free(outputPtr);
+                                    }
+                                }
+                            } finally {
+                                _free(inputPtr);
+                            }
+                        } finally {
+                            Runtime.stackRestore(sp);
+                        }
+                    }
+                };
+
+                fileReader.readAsArrayBuffer(files[0]);
+            }
+
+            window.addEventListener("load", function(e) {
+                option = document.getElementById("option");
+                withSize = document.getElementById("withSize");
+                automaticSize = document.getElementById("automaticSize");
+                manualSize = document.getElementById("manualSize");
+                size = document.getElementById("size");
+
+                option.addEventListener("change", optionChange, false);
+                document.getElementById("go").addEventListener("click", go, false);
+                optionChange();
+                size.addEventListener("change", function () { manualSize.checked = true; }, false);
+            }, false);
+        </script>
+    </head>
+    <body>
+        <h1>KENSC</h1>
+        <h2>Input</h2>
+        <p>Operation: <select id="option">
+            <option value="0">Comper - Compress</option>
+            <option value="1">Comper - Decompress</option>
+            <option value="2">Enigma - Compress</option>
+            <option value="3">Enigma - Decompress</option>
+            <option value="4">Kosinski - Compress</option>
+            <option value="5">Kosinski - Decompress</option>
+            <option value="6">Moduled Kosinski - Compress</option>
+            <option value="7">Moduled Kosinski - Decompress</option>
+            <option value="8">Nemesis - Compress</option>
+            <option value="9">Nemesis - Decompress</option>
+            <option value="10">Saxman - Compress</option>
+            <option value="11">Saxman - Decompress</option>
+        </select></p>
+        <p id="withSizeOption"><label for="withSize">Include the size of the compressed data in the header? <input id="withSize" type="checkbox"></label></p>
+        <p id="sizeOption">Size: <label for="automaticSize"><input id="automaticSize" name="sizeSetting" type="radio"> Automatic</label> <input id="manualSize" name="sizeSetting" type="radio"><input id="size" type="text"> (0 = the file has the compressed size in its header)</p>
+        <p>File: <input type="file" id="files" name="file"></p>
+        <p><button id="go">Go</button></p>
+        <h2>Output</h2>
+        <p><a id="download" href="">Download</a></p>
+        <pre id="output" style="white-space: pre-wrap"></pre>
+    </body>
+</html>
